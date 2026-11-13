@@ -2,58 +2,81 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import LogoutButton from "@/components/logout-button";
 
-export const instant = false;
-
 export default async function DashboardPage() {
   const supabase = await createClient();
 
   const {
     data: { user },
-    error,
   } = await supabase.auth.getUser();
 
-  if (error || !user) {
-    redirect("/login");
-  }
+  if (!user) redirect("/login");
 
-  const { data: profile, error: profileError } = await supabase
+  const { data: profile } = await supabase
     .from("profiles")
     .select("full_name, role")
     .eq("id", user.id)
     .single();
 
-  if (profileError || !profile) {
-    return (
-      <main className="p-10">
-        Profile not found. Please contact support.
-      </main>
-    );
+  if (!profile) redirect("/login");
+
+  if (profile.role !== "candidate") {
+    return <main className="p-10">Recruiter dashboard coming next.</main>;
   }
 
+  const { data: candidate } = await supabase
+    .from("candidate_profiles")
+    .select("*")
+    .eq("id", user.id)
+    .single();
+
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#fafaff] p-6 text-[#17172b]">
-      <div className="w-full max-w-lg rounded-3xl bg-white p-10 text-center shadow-xl">
+    <main className="min-h-screen bg-[#fafaff] p-8 text-[#17172b]">
+      <header className="flex items-center justify-between">
+        <h1 className="text-2xl font-black text-violet-700">Upcruit</h1>
+        <LogoutButton />
+      </header>
 
-        <h1 className="text-3xl font-black">
-          Welcome, {profile.full_name}!
-        </h1>
-
-        <p className="mt-4 text-gray-500">
-          You are logged in as a{" "}
-          <span className="font-bold capitalize text-violet-600">
-            {profile.role}
-          </span>.
+      <section className="mx-auto mt-12 max-w-6xl">
+        <h2 className="text-3xl font-black">
+          Welcome back, {profile.full_name}!
+        </h2>
+        <p className="mt-2 text-gray-500">
+          Your career journey starts here.
         </p>
 
-        <p className="mt-6 text-sm text-gray-400">
-          Welcome to your Upcruit workspace.
-        </p>
-
-        <div className="mt-8">
-          <LogoutButton />
+        <div className="mt-10 grid gap-6 md:grid-cols-3">
+          {[
+            ["Discover Jobs", "Find opportunities that match your skills."],
+            ["My Interests", "Track the jobs you've shown interest in."],
+            ["My Matches", "Connect with recruiters who match with you."],
+          ].map(([title, description]) => (
+            <div key={title} className="rounded-2xl bg-white p-7 shadow-md">
+              <h3 className="text-xl font-bold">{title}</h3>
+              <p className="mt-3 text-gray-500">{description}</p>
+              <span className="mt-5 inline-block text-sm font-semibold text-violet-600">
+                Coming soon
+              </span>
+            </div>
+          ))}
         </div>
 
-      </div>
+        <div className="mt-8 rounded-2xl bg-white p-8 shadow-md">
+          <h3 className="text-xl font-bold">Your Profile</h3>
+          <p className="mt-4 text-gray-600">
+            <strong>Headline:</strong> {candidate?.headline || "Not added"}
+          </p>
+          <p className="mt-3 text-gray-600">
+            <strong>Location:</strong> {candidate?.location || "Not added"}
+          </p>
+          <p className="mt-3 text-gray-600">
+            <strong>Experience:</strong> {candidate?.experience_years ?? 0} years
+          </p>
+          <p className="mt-3 text-gray-600">
+            <strong>Skills:</strong>{" "}
+            {candidate?.skills?.join(", ") || "Not added"}
+          </p>
+        </div>
+      </section>
     </main>
   );
 }
