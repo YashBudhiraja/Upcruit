@@ -94,7 +94,7 @@ export default async function DashboardPage() {
               title="My Matches"
               description="Connect with recruiters who match with you."
               href="/matches"
-              icon="❤️"
+              icon="📇"
             />
 
             <DashboardCard
@@ -185,7 +185,7 @@ export default async function DashboardPage() {
             title="My Matches"
             description="View candidates who mutually match with you."
             href="/matches"
-            icon="❤️"
+            icon="📇"
           />
 
           <DashboardCard
