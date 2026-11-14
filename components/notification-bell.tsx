@@ -14,7 +14,7 @@ type Notification = {
 };
 
 export default function NotificationBell() {
-  const supabase = createClient();
+  const [supabase] = useState(() => createClient());
   const router = useRouter();
 
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -22,14 +22,18 @@ export default function NotificationBell() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    let channel: ReturnType<typeof supabase.channel>;
+    let channel: ReturnType<typeof supabase.channel> | undefined;
+    let cancelled = false;
 
     async function loadNotifications() {
       const {
         data: { user },
+        error: authError,
       } = await supabase.auth.getUser();
 
-      if (!user) {
+      if (cancelled) return;
+
+      if (authError || !user) {
         setLoading(false);
         return;
       }
@@ -41,14 +45,17 @@ export default function NotificationBell() {
         .order("created_at", { ascending: false })
         .limit(30);
 
+      if (cancelled) return;
+
       if (error) {
         console.error("Notification loading error:", error);
       } else {
         setNotifications(data || []);
       }
 
+      // Unique channel name prevents reuse of an already-subscribed channel.
       channel = supabase
-        .channel(`notifications-${user.id}`)
+        .channel(`notifications-${user.id}-${crypto.randomUUID()}`)
         .on(
           "postgres_changes",
           {
@@ -68,8 +75,15 @@ export default function NotificationBell() {
               return [newNotification, ...previous].slice(0, 30);
             });
           }
-        )
-        .subscribe();
+        );
+
+      if (cancelled) return;
+
+      channel.subscribe((status) => {
+        if (status === "CHANNEL_ERROR") {
+          console.error("Notification realtime subscription failed.");
+        }
+      });
 
       setLoading(false);
     }
@@ -77,11 +91,13 @@ export default function NotificationBell() {
     loadNotifications();
 
     return () => {
+      cancelled = true;
+
       if (channel) {
-        supabase.removeChannel(channel);
+        void supabase.removeChannel(channel);
       }
     };
-  }, []);
+  }, [supabase]);
 
   const unreadCount = notifications.filter((n) => !n.is_read).length;
 

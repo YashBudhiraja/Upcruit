@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { Suspense, useEffect, useState, useRef } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
@@ -13,7 +13,7 @@ type Message = {
   created_at: string;
 };
 
-export default function ChatPage() {
+function ChatContent() {
   const { matchId } = useParams<{ matchId: string }>();
   const supabase = createClient();
 
@@ -26,12 +26,15 @@ export default function ChatPage() {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    let channel: ReturnType<typeof supabase.channel>;
+    let channel: ReturnType<typeof supabase.channel> | undefined;
+    let cancelled = false;
 
     async function initializeChat() {
       const {
         data: { user },
       } = await supabase.auth.getUser();
+
+      if (cancelled) return;
 
       if (!user) {
         setLoading(false);
@@ -45,6 +48,8 @@ export default function ChatPage() {
         .select("*")
         .eq("match_id", matchId)
         .order("created_at", { ascending: true });
+
+      if (cancelled) return;
 
       if (error) {
         console.error("Message loading error:", error);
@@ -82,11 +87,13 @@ export default function ChatPage() {
     initializeChat();
 
     return () => {
+      cancelled = true;
+
       if (channel) {
         supabase.removeChannel(channel);
       }
     };
-  }, [matchId]);
+  }, [matchId, supabase]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -221,5 +228,13 @@ export default function ChatPage() {
         </form>
       </section>
     </main>
+  );
+}
+
+export default function ChatPage() {
+  return (
+    <Suspense fallback={<div className="p-6">Loading chat...</div>}>
+      <ChatContent />
+    </Suspense>
   );
 }
