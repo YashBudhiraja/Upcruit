@@ -12,6 +12,7 @@ export default function OnboardingPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [isEditing, setIsEditing] = useState(false);
 
   const [form, setForm] = useState({
     headline: "",
@@ -28,26 +29,84 @@ export default function OnboardingPage() {
 
   useEffect(() => {
     async function loadProfile() {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
 
       if (!user) {
         router.replace("/login");
         return;
       }
 
-      const { data } = await supabase
+      const { data: profile, error: profileError } = await supabase
         .from("profiles")
         .select("role")
         .eq("id", user.id)
         .single();
 
-      if (!data) {
+      if (profileError || !profile) {
         setError("Profile not found.");
         setLoading(false);
         return;
       }
 
-      setRole(data.role);
+      setRole(profile.role);
+
+      if (profile.role === "candidate") {
+        const { data: candidate, error: candidateError } = await supabase
+          .from("candidate_profiles")
+          .select("*")
+          .eq("id", user.id)
+          .maybeSingle();
+
+        if (candidateError) {
+          setError(candidateError.message);
+          setLoading(false);
+          return;
+        }
+
+        if (candidate) {
+          setIsEditing(true);
+
+          setForm((previous) => ({
+            ...previous,
+            headline: candidate.headline || "",
+            bio: candidate.bio || "",
+            skills: candidate.skills?.join(", ") || "",
+            experience_years: String(candidate.experience_years ?? 0),
+            education: candidate.education || "",
+            location: candidate.location || "",
+          }));
+        }
+      } else if (profile.role === "recruiter") {
+        const { data: recruiter, error: recruiterError } = await supabase
+          .from("recruiter_profiles")
+          .select("*")
+          .eq("id", user.id)
+          .maybeSingle();
+
+        if (recruiterError) {
+          setError(recruiterError.message);
+          setLoading(false);
+          return;
+        }
+
+        if (recruiter) {
+          setIsEditing(true);
+
+          setForm((previous) => ({
+            ...previous,
+            company_name: recruiter.company_name || "",
+            designation: recruiter.designation || "",
+            company_website: recruiter.company_website || "",
+            company_description: recruiter.company_description || "",
+            location: recruiter.location || "",
+          }));
+        }
+      } else {
+        setError("Invalid account role.");
+      }
+
       setLoading(false);
     }
 
@@ -57,15 +116,23 @@ export default function OnboardingPage() {
   function updateField(
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
   ) {
-    setForm({ ...form, [e.target.name]: e.target.value });
+    const { name, value } = e.target;
+
+    setForm((previous) => ({
+      ...previous,
+      [name]: value,
+    }));
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+
     setSaving(true);
     setError("");
 
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
 
     if (!user) {
       router.replace("/login");
@@ -77,22 +144,29 @@ export default function OnboardingPage() {
     if (role === "candidate") {
       result = await supabase.from("candidate_profiles").upsert({
         id: user.id,
-        headline: form.headline,
-        bio: form.bio,
-        skills: form.skills.split(",").map((s) => s.trim()).filter(Boolean),
+        headline: form.headline.trim(),
+        bio: form.bio.trim(),
+        skills: form.skills
+          .split(",")
+          .map((skill) => skill.trim())
+          .filter(Boolean),
         experience_years: Number(form.experience_years),
-        education: form.education,
-        location: form.location,
+        education: form.education.trim(),
+        location: form.location.trim(),
       });
-    } else {
+    } else if (role === "recruiter") {
       result = await supabase.from("recruiter_profiles").upsert({
         id: user.id,
-        company_name: form.company_name,
-        company_website: form.company_website,
-        company_description: form.company_description,
-        designation: form.designation,
-        location: form.location,
+        company_name: form.company_name.trim(),
+        designation: form.designation.trim(),
+        company_website: form.company_website.trim(),
+        company_description: form.company_description.trim(),
+        location: form.location.trim(),
       });
+    } else {
+      setError("Invalid account role.");
+      setSaving(false);
+      return;
     }
 
     if (result.error) {
@@ -106,7 +180,11 @@ export default function OnboardingPage() {
   }
 
   if (loading) {
-    return <div className="p-10 text-center">Loading...</div>;
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#fafaff]">
+        <p className="text-gray-500">Loading your profile...</p>
+      </main>
+    );
   }
 
   return (
@@ -116,69 +194,130 @@ export default function OnboardingPage() {
         className="w-full max-w-xl space-y-5 rounded-3xl bg-white p-8 shadow-xl"
       >
         <h1 className="text-3xl font-black text-[#17172b]">
-          Complete Your Profile
+          {isEditing ? "Edit Your Profile" : "Complete Your Profile"}
         </h1>
 
         <p className="text-gray-500">
-          Tell us a little about yourself.
+          {isEditing
+            ? "Update your information whenever you need."
+            : "Tell us a little about yourself."}
         </p>
 
         {role === "candidate" ? (
           <>
-            <input name="headline" placeholder="Professional headline"
-              value={form.headline} onChange={updateField} required
-              className="w-full rounded-xl border p-3 text-gray-900" />
+            <input
+              name="headline"
+              placeholder="Professional headline"
+              value={form.headline}
+              onChange={updateField}
+              required
+              className="w-full rounded-xl border p-3 text-gray-900"
+            />
 
-            <textarea name="bio" placeholder="About yourself"
-              value={form.bio} onChange={updateField}
-              className="w-full rounded-xl border p-3 text-gray-900" />
+            <textarea
+              name="bio"
+              placeholder="About yourself"
+              value={form.bio}
+              onChange={updateField}
+              className="w-full rounded-xl border p-3 text-gray-900"
+            />
 
-            <input name="skills" placeholder="Skills (Python, SQL, Java)"
-              value={form.skills} onChange={updateField}
-              className="w-full rounded-xl border p-3 text-gray-900" />
+            <input
+              name="skills"
+              placeholder="Skills (Python, SQL, Java)"
+              value={form.skills}
+              onChange={updateField}
+              className="w-full rounded-xl border p-3 text-gray-900"
+            />
 
-            <input name="experience_years" type="number" min="0"
+            <input
+              name="experience_years"
+              type="number"
+              min="0"
               placeholder="Experience in years"
-              value={form.experience_years} onChange={updateField}
-              className="w-full rounded-xl border p-3 text-gray-900" />
+              value={form.experience_years}
+              onChange={updateField}
+              className="w-full rounded-xl border p-3 text-gray-900"
+            />
 
-            <input name="education" placeholder="Education"
-              value={form.education} onChange={updateField}
-              className="w-full rounded-xl border p-3 text-gray-900" />
+            <input
+              name="education"
+              placeholder="Education"
+              value={form.education}
+              onChange={updateField}
+              className="w-full rounded-xl border p-3 text-gray-900"
+            />
           </>
         ) : (
           <>
-            <input name="company_name" placeholder="Company name"
-              value={form.company_name} onChange={updateField} required
-              className="w-full rounded-xl border p-3 text-gray-900" />
+            <input
+              name="company_name"
+              placeholder="Company name"
+              value={form.company_name}
+              onChange={updateField}
+              required
+              className="w-full rounded-xl border p-3 text-gray-900"
+            />
 
-            <input name="designation" placeholder="Your designation"
-              value={form.designation} onChange={updateField}
-              className="w-full rounded-xl border p-3 text-gray-900" />
+            <input
+              name="designation"
+              placeholder="Your designation"
+              value={form.designation}
+              onChange={updateField}
+              className="w-full rounded-xl border p-3 text-gray-900"
+            />
 
-            <input name="company_website" placeholder="Company website"
-              value={form.company_website} onChange={updateField}
-              className="w-full rounded-xl border p-3 text-gray-900" />
+            <input
+              name="company_website"
+              placeholder="Company website"
+              value={form.company_website}
+              onChange={updateField}
+              className="w-full rounded-xl border p-3 text-gray-900"
+            />
 
-            <textarea name="company_description"
+            <textarea
+              name="company_description"
               placeholder="About the company"
-              value={form.company_description} onChange={updateField}
-              className="w-full rounded-xl border p-3 text-gray-900" />
+              value={form.company_description}
+              onChange={updateField}
+              className="w-full rounded-xl border p-3 text-gray-900"
+            />
           </>
         )}
 
-        <input name="location" placeholder="Your location"
-          value={form.location} onChange={updateField} required
-          className="w-full rounded-xl border p-3 text-gray-900" />
+        <input
+          name="location"
+          placeholder="Your location"
+          value={form.location}
+          onChange={updateField}
+          required
+          className="w-full rounded-xl border p-3 text-gray-900"
+        />
 
-        {error && <p className="text-sm text-red-600">{error}</p>}
+        {error && (
+          <p className="rounded-lg bg-red-50 p-3 text-sm text-red-600">
+            {error}
+          </p>
+        )}
 
         <button
           type="submit"
           disabled={saving}
           className="w-full rounded-xl bg-violet-600 p-3 font-bold text-white hover:bg-violet-700 disabled:opacity-50"
         >
-          {saving ? "Saving..." : "Save & Continue"}
+          {saving
+            ? "Saving..."
+            : isEditing
+              ? "Update Profile"
+              : "Save & Continue"}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => router.push("/dashboard")}
+          className="w-full rounded-xl border border-gray-200 p-3 font-semibold text-gray-600 hover:bg-gray-50"
+        >
+          Cancel
         </button>
       </form>
     </main>
